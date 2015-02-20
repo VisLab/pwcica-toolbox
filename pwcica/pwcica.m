@@ -24,7 +24,7 @@
 %           The complex ICA method to be used in complex phase space. NOTE:
 %           use 'infomax' only with 'Real' set to 1.
 %           ***!!! SEE NOTE BELOW ON COMPLEX ICA PACKAGES !!!***
-%           ALTRNATELY: the value of ComplexICAMethod may be specified as a
+%           ALTERNATELY: the value of ComplexICAMethod may be specified as a
 %           function handle for a custom complex ICA method satisfying:
 %           >>    complexW = @customfunction(complexData);
 %           where complexData is the [n,N] array of complex signal data,
@@ -45,9 +45,9 @@
 %     -> 'SamplingRate', ([1], any real)
 %           The sampling rate of observations. Set 'TimeInvariant' to 0 in
 %           order to implement a sampling rate.
-%     -> 'EpochLength', ([depends on how data is input], any integer)
+%     -> 'EpochLength',  ([K], an integer divisible by N if K = 1)
 %           Define epoch length in case data should be epoched but is input
-%           as stream. Do not specifiy if data is already epoched. 
+%           as stream. Ignored if K ~= 1. 
 %     -> 'GPU' ([0] , 1)
 %           Turn on to use MATLAB CUDA optimized 'ebm' complex ICA.
 %     -> 'OptObject' (['pow3'] 'hyvar')
@@ -115,19 +115,20 @@
 %
 %
 %   Author: Kenneth Ball, Postdoc; UTSA Dept of CS/ARL TNB-HRED
+%   Copywrite: Kenneth Ball, 2015
 %
-%   Reference: Ball, K. R. et al. PWC-ICA: A Method for Ordered Blind 
-%   Source Separation with Application to EEG. 
+%   Reference: Ball, K. R. et al. [2015] PWC-ICA: A Method for Ordered Blind 
+%   Source Separation with Application to EEG. In Internal Review. 
 %
 %   If you find this code useful in your own analyses, please cite:
 %
 %   1. The PWC-ICA paper:
-%   Ball, K. R., Bigdley-Shamlo, N, Mullins, T., Robbins, K.
+%   Ball, K. R., Bigdley-Shamlo, N., Mullins, T., Robbins, K.
 %   PWC-ICA: A Method for Ordered Blind Source Separation with Application
 %   to EEG. (To appear)
 %
 %   2. The paper associated with the Complex ICA method you use, especially
-%   if you use one of the included packages. The default method 'FicaCPLX'
+%   if you use one of the default packages. The default method 'FicaCPLX'
 %   method's reference is:
 %   
 %   Koldovský, Z., & Tichavský, P. (2007). Blind Instantaneous Noisy 
@@ -135,7 +136,21 @@
 %   In M. Davies, C. James, S. Abdallah, & M. Plumbley (Eds.), 
 %   Independent Component Analysis and Signal Separation SE  - 91 
 %   (Vol. 4666, pp. 730–737). Springer Berlin Heidelberg.
-%   
+% 
+% %
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% (at your option) any later version.
+%
+% This program is distributed in the hope that it will be useful,
+% but WITHOUT ANY WARRANTY; without even the implied warranty of
+% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+% GNU General Public License for more details.
+%
+% You should have received a copy of the GNU General Public License
+% along with this program; if not, write to the Free Software
+% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1.07  USA
 
 function [ W , varargout ] = pwcica( data , varargin)
 
@@ -200,11 +215,13 @@ if (nargin> 1)
         key = varargin{ii};
         val = varargin{ii+1};
         if strcmp(key,'EpochLength')
-            epochLength = val;
-            epochCount = N/val;
-            if rem(N,val) ~= 0
-                fprintf('pwcica(): Total number of time frames must be divisible by Epoch Length.')
-                return
+            if length(data,3) == 1
+                epochLength = val;
+                epochCount = N/val;
+                if rem(N,val) ~= 0
+                    fprintf('pwcica(): Total number of time frames must be divisible by Epoch Length.')
+                    return
+                end
             end
         elseif strcmp(key,'SamplingRate')
 %             timeFlag = 1;

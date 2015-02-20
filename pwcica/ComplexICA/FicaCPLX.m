@@ -61,7 +61,8 @@ while (1-min(crit)>epsilon && NumIt<MaxIt)% && sum(double(changed>10))<2)
    Wold=W;
    switch g
     case 'pow3'
-     W=(Z*((Z'*W).^2.*conj(Z'*W)))/N-2*W;
+%      W=(Z*((Z'*W).^2.*conj(Z'*W)))/N-2*W;
+     u = Z'*W; W=(Z*((u).^2.*conj(u)))/N-2*W;
     case 'hyvar'
     % W=(Z*((Z'*W).^2.*conj(Z'*W)))/N-2*W;
      Z1=W'*Z;
