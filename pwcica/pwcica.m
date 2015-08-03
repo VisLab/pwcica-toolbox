@@ -199,6 +199,8 @@ realFlag = 0;
 WinitFlag = 0;
 complexICAPath = mfilename('fullpath');
 complexICAPath = [complexICAPath(1:end-7),'\ComplexICA'];
+noPaths = 0;
+phaseCriteria = 'variance';
 
 % Adjust for optional inputs
 if (nargin> 1)
@@ -215,7 +217,7 @@ if (nargin> 1)
         key = varargin{ii};
         val = varargin{ii+1};
         if strcmp(key,'EpochLength')
-            if length(data,3) == 1
+            if size(data,3) == 1
                 epochLength = val;
                 epochCount = N/val;
                 if rem(N,val) ~= 0
@@ -258,21 +260,28 @@ if (nargin> 1)
                 Winit = val;
             end
         elseif strcmp(key,'TimeInvariant')
-            timeFlag = ~val;
+%             timeFlag = ~val;
+            timeFlag = val;
         elseif strcmp(key,'ComplexICAPath')
             if isempth(val);
                 complexICAPath = [];
             else
                 complexICAPath = val;
             end
+        elseif strcmp(key,'NoPaths')
+            noPaths = val;
+        elseif strcmp(key,'PhaseCriteria')
+            phaseCriteria = val;
         end
     end
 end
 
 
 % Add paths for complex ICA algorithms:
+if ~noPaths
 if ~isempty(complexICAPath);
     addpath(genpath(complexICAPath));
+end
 end
 
 % If input data is epoched, transform to stream first:
@@ -285,34 +294,59 @@ end
 data1 = bsxfun(@minus,data,mean(data,2));
 data = data1;
 
+% Sphere data
+% Sph = inv(sqrtm((data*data')./size(data,2)));
+Sph = eye(n);
+data = Sph*data;
+
 % Transform back to epochs:
 data = reshape(data,n,epochLength,epochCount);
 
 if savGolFlag == 0
 
-    % Transform data epochs to pairwise form:
-    
-    data = cat(1,data(:,1:(end-level),:),data(:,(1+level):end,:));
 
-    % Return to data stream form:
-
-    data = reshape(data,2*n,(epochLength-level)*epochCount);
 
     % Generate tangent space transform and apply to pairwise data stream:
-    if timeFlag
-        V = [ .5*eye(n) , .5*eye(n) ; -1/(level*dT)*eye(n) , 1/(level*dT)*eye(n) ];
-    else
-        V = 1/sqrt(2)*[eye(n) , eye(n) ; -eye(n) , eye(n)];
+    if level ~= 0
+        
+        % Transform data epochs to pairwise form:
+
+        data = cat(1,data(:,1:(end-level),:),data(:,(1+level):end,:));
+
+        % Return to data stream form:
+
+        data = reshape(data,2*n,(epochLength-level)*epochCount);
+        
+        if timeFlag == 0
+            V = [ .5*eye(n) , .5*eye(n) ; -1/(level*dT)*eye(n) , 1/(level*dT)*eye(n) ];
+            data = V*data;
+        elseif timeFlag > 0
+            V = 1/sqrt(2)*[eye(n) , eye(n) ; -eye(n) , eye(n)];
+            data = V*data;
+        else
+            V = [eye(n) , eye(n) ; -eye(n) , eye(n)];
+            data = V*data;
+    %         circular = [eye(n),zeros(n);zeros(n),mean(std(data(1:n,:)')./std(data((n+1):(2*n),:)'))*eye(n)];
+            circular = diag(std(data(1:n,:)')./std(data((n+1):(2*n),:)')); circular = [eye(n),zeros(n);zeros(n),circular];
+            data = circular*data;
+            V = circular*V;
+        end
+        % Zero Mean the data again.
+        data = bsxfun(@minus,data,mean(data,2));
+        % Transform into complex phase space:
+        data = data(1:n,:) + 1i*data((n+1):(2*n),:);
+    elseif level == 0
+%         V = eye(n);
+        % Take hilbert of data epochs.
+        newData = zeros(size(data));
+        for kk = 1:size(data,3)
+            newData(:,:,kk) = hilbert(squeeze(data(:,:,kk))').';
+        end
+        % Return to stream:
+        data = reshape(newData,n,epochLength*epochCount);
+        clear newData;
     end
 
-    data = V*data;
-    
-    % Zero Mean the data again.
-    data = bsxfun(@minus,data,mean(data,2));
-
-    % Transform into complex phase space:
-
-    data = data(1:n,:) + 1i*data((n+1):(2*n),:);
 
     % Double the data in case it isn't already:
 
@@ -350,6 +384,12 @@ if savGolFlag == 0
         case 'infomax'
             [W,S] = runica(data,'Extended',1);
             complexW = W*S;
+        case 'nonCircFast'
+            [complexW,~] = nonCircComplexFastICAsym(data,'log');
+            complexW = inv(complexW);
+        case 'ACMN'
+            [complexW,~] = ACMNsym(data,'mle_circ');
+            complexW = inv(complexW);
         otherwise
             complexW = complexICAMethod(data);
     end
@@ -422,7 +462,49 @@ else
     
 end
 
-W = real(complexW*SphC);
+% W = real(complexW*SphC);
+
+W = complexW*SphC;
+% phi = -pi/2:pi/256:pi/2;
+bestPhase = zeros(1,n);
+qualityTest = zeros(3,n);
+for jj = 1:n
+%     shifts = ((cos(phi)'*real(W(jj,:))-sin(phi)'*imag(W(jj,:)))*Sph*data1)';
+%     shifts1 = ((cos(phi)'*real(W(jj,:))-sin(phi)'*imag(W(jj,:)))*Sph*data1(:,1:end-level))';
+%     shifts2 = ((sin(phi)'*real(W(jj,:))+cos(phi)'*imag(W(jj,:)))*Sph*data1(:,(1+level):end))';
+%     shifts = shifts1+shifts2;
+    switch phaseCriteria
+        case 'variance'
+            A = 2*(real(W(1,:))*data1)*(imag(W(1,:))*data1)';
+            B = sum( (imag(W(1,:))*data1).^2 - (real(W(1,:))*data1).^2);
+            phase(1) = .5*atan2(A,B);
+            phase(2) = phase(1)-pi/2;
+            shift1 = (cos(phase(1))*real(W(jj,:))-sin(phase(1))*imag(W(jj,:)))*Sph*data1;
+            shift2 = (cos(phase(2))*real(W(jj,:))-sin(phase(2))*imag(W(jj,:)))*Sph*data1;
+            variance1 = shift1*shift1'/size(data1,2);
+            variance2 = shift2*shift2'/size(data1,2);
+            [~,ind] = max([variance1,variance2]);
+            bestPhase(jj) = phase(ind);
+            qualityTest(1,jj) = (variance2+variance1)/2;
+            qualityTest(2,jj) = abs(variance2-variance1);
+            qualityTest(3,jj) = qualityTest(2,jj)/qualityTest(1,jj);
+        case 'kurtosis'
+            phi = -pi/2:pi/256:pi/2;
+            shifts = ((cos(phi)'*real(W(jj,:))-sin(phi)'*imag(W(jj,:)))*Sph*data1)';
+            kurtos = cKurt(shifts')';
+            % Smooth the kurtosis function of phase shift:
+            kurtos = [kurtos , kurtos , kurtos];
+            for kk = (length(phi)+1):(2*length(phi))
+                smKurtos(kk-length(phi)) = mean(kurtos((kk-64):(kk+64)));
+            end
+            %smKurtos is a [1,length(phi)] curve.
+            [~,ind] = max(abs(smKurtos));
+            bestPhase(jj) = phi(ind);
+    end
+%     bestPhase(jj) = phi(ind);
+end
+W = (diag(cos(bestPhase))*real(W) - ...
+    diag(sin(bestPhase))*imag(W))*Sph;
 
 scaling = repmat(sqrt(mean(inv(W).^2))',[1 size(W,1)]);
 % feats = (scaling.*W)*data1;
@@ -434,6 +516,7 @@ metas.complexW = complexW;
 metas.SphC = SphC;
 metas.options = varargin;
 metas.varIndex = varIndex;
+metas.qualityTest = qualityTest(:,varIndex);
 
 varargout{1} = metas;
 
